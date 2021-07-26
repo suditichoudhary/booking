@@ -10,8 +10,12 @@ import lombok.ToString;
 public class FlexibleModel {
 
     /* Created by suditi on 2021-07-25 */
-    public enum type { weekend,week,month }
-    public enum month { jan,feb,mar,apr,may,jun,jul,aug,sep,oct,nov,dec }
+    private String type;
+    private String month;
+   // public enum type { weekend,week,month }
+   // public enum month { jan,feb,mar,apr,may,jun,jul,aug,sep,oct,nov,dec }
 
 
 }
+
+

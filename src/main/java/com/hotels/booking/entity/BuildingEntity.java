@@ -4,6 +4,7 @@ package com.hotels.booking.entity;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import lombok.ToString;
 
 import javax.persistence.*;
 
@@ -11,6 +12,7 @@ import javax.persistence.*;
 @Setter
 @NoArgsConstructor
 @Entity
+@ToString
 @Table(name = "building")
 public class BuildingEntity {
 
@@ -18,7 +20,7 @@ public class BuildingEntity {
     @Column(name = "id",nullable = false)
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Integer walletId;
+    private Integer id;
     @Column(name= "city")
     private String city;
 }

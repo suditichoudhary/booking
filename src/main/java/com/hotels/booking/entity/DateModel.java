@@ -11,6 +11,6 @@ public class DateModel {
 
     /* Created by suditi on 2021-07-25 */
 
-    String start;
-    String End;
+    private String start;
+    private String End;
 }
