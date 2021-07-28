@@ -41,9 +41,10 @@ public class AvailabilityService {
 
             if(response.getMessage().equalsIgnoreCase("success")){
                 response.setCode(HttpStatus.OK.value());
-            }else{
-                response.setData(null);
             }
+//            else{
+//                response.setData(null);
+//            }
             return new ResponseEntity<>(response, HttpStatus.OK);
         } catch (Exception e) {
             LOGGER.error("Exception occurred while getHotelAvailability the object:{}", e);
@@ -148,22 +149,23 @@ public class AvailabilityService {
             for (BuildingEntity building : buildingEntityList) {
                 // find all properties matching search result
                 List<PropertyEntity> properties = null;
-                if (!StringUtils.isEmpty(bookingRequest.getApartmentType())) {
-                    properties = buildingService.getPropertyDetails(bookingRequest.getApartmentType(), building.getId());
-                } else {
-                    properties = buildingService.getPropertyDetails(building.getId());
-                }
+                //  if (!StringUtils.isEmpty(bookingRequest.getApartmentType())) {
+                //     properties = buildingService.getPropertyDetails(bookingRequest.getApartmentType(), building.getId());
+                //  } else {
+                properties = buildingService.getPropertyDetails(building.getId());
+                //   }
 
                 if (properties != null && properties.size() > 0) {
                     // check availability on dates
-                    response = propAvailableOnSelectedDate(bookingRequest,properties);
-                    if(!response.getMessage().equalsIgnoreCase("success")){
-                        // error is already there
-                    }else{
-                        // suggestion implementation?
-                        AvailabilityResponse availabilityResponse = prepareActualResponse((List<PropertyEntity>)response.getData());
-                        response.setData(availabilityResponse);
-                    }
+                    AvailabilityResponse availabilityResponse = new AvailabilityResponse();
+                    response = propAvailableOnSelectedDate(bookingRequest,properties,availabilityResponse);
+                    //  if(!response.getMessage().equalsIgnoreCase("success")){
+                    // error is already there
+                    // }else{
+                    // suggestion implementation?
+                    availabilityResponse = prepareActualResponse(response,availabilityResponse);
+                    response.setData(availabilityResponse);
+                    //   }
                 } else {
                     response.setCode(HttpStatus.OK.value());
                     if (!StringUtils.isEmpty(bookingRequest.getApartmentType()))
@@ -180,22 +182,47 @@ public class AvailabilityService {
         }
         return response;
     }
-    public Response propAvailableOnSelectedDate(BookingRequest bookingRequest,List<PropertyEntity> properties){
-
+    public Response propAvailableOnSelectedDate(BookingRequest bookingRequest,List<PropertyEntity> properties, AvailabilityResponse availabilityResponse){
+        List<AlternativeUnits> other = new ArrayList<>();
         //List<PropertyEntity> tempProp = properties;
         Response response = new Response();
         Iterator<PropertyEntity> iter = properties.iterator();
         while(iter.hasNext()) {
             try{
                 PropertyEntity prop = iter.next();
-                // check for flexible
-                if (bookingRequest.isFlagFlexi()) {
+
+                if (!bookingRequest.isFlagFlexi()){
+                    // runs in case of date selection
+                    List<AvailabilityEntity> availabilityEntities = buildingService.getAvailability(prop.getId());
+                    if (availabilityEntities != null && availabilityEntities.size() > 0) {
+                        for (AvailabilityEntity avail : availabilityEntities) {
+                            if (DateFormatUtil.dateOverlap(bookingRequest.getDateModel().getStart(), bookingRequest.getDateModel().getEnd(), avail.getStart_date(), avail.getEnd_date())) {
+                                // date overlaps can't help it
+                                iter.remove();
+                                LOGGER.info("Removing property due to availability issue : " + prop.getId());
+                                continue;
+                            } else {
+                                // all gooddddd
+                            }
+                        }
+                    }
+
+                    // check for particular date
+
+                    boolean flagReserved = propReservedOnSelectedDate(bookingRequest, prop.getId());
+                    if (flagReserved) {
+                        LOGGER.info("Removing property due to reservation issue : " + prop.getId());
+                        iter.remove();
+                        continue;
+                    }
+                }else {
+                    // check for flexible
                     List<String> monStr = bookingRequest.getFlexibleModel().getMonth();
                     List<Integer> monInt = new ArrayList<>();
                     Collections.sort(monInt);
                     for (String mon : monStr) {
                         if(FlexiMonth.valueOf(mon).getMonId()>=LocalDate.now().getMonthValue())
-                        monInt.add(FlexiMonth.valueOf(mon).getMonId());
+                            monInt.add(FlexiMonth.valueOf(mon).getMonId());
                     }
 
                     if(monInt.size()<1){
@@ -206,30 +233,26 @@ public class AvailabilityService {
                     boolean res = propFlexiCheckAvailability(bookingRequest,prop.getId(),monInt);
                     if(res) {
                         iter.remove();
-                        LOGGER.info("Removing property due to availability issue : " + prop.getId());
+                        LOGGER.info("Removing property due to flexi availability issue : " + prop.getId());
                         continue;
                     }
                     res = propFlexiCheckReserved(bookingRequest,prop.getId(),monInt);
                     if(res) {
                         iter.remove();
-                        LOGGER.info("Removing property due to availability issue : " + prop.getId());
+                        LOGGER.info("Removing property due to flexi reservation issue : " + prop.getId());
                         continue;
                     }
-                    continue;
+                    // continue;
                 }
-                // runs in case of date selection
-                List<AvailabilityEntity> availabilityEntities = buildingService.getAvailability(prop.getId());
-                if (availabilityEntities != null && availabilityEntities.size() > 0) {
-                    for (AvailabilityEntity avail : availabilityEntities) {
-                        if (DateFormatUtil.dateOverlap(bookingRequest.getDateModel().getStart(), bookingRequest.getDateModel().getEnd(), avail.getStart_date(), avail.getEnd_date())) {
-                            // date overlaps can't help it
-                            iter.remove();
-                            LOGGER.info("Removing property due to availability issue : " + prop.getId());
-                            continue;
-                        } else {
-                            // all gooddddd
-                        }
-                    }
+                // check for apartment type match
+                if (!StringUtils.isEmpty(bookingRequest.getApartmentType()) && !prop.getProperty_type().equalsIgnoreCase(bookingRequest.getApartmentType())) {
+                    iter.remove();
+                    LOGGER.info("Removing property due to Apartment type mismatch : " + prop.getId());
+                    AlternativeUnits alternativeUnits = new AlternativeUnits();
+                    alternativeUnits.setId(prop.getId());
+                    alternativeUnits.setAvailableStarting(bookingRequest.getDateModel()!=null?bookingRequest.getDateModel().getStart()!=null?bookingRequest.getDateModel().getStart():LocalDate.now().toString():LocalDate.now().toString());
+                    other.add(alternativeUnits);
+                    continue;
                 }
                 // check if amenties matches
                 if (bookingRequest.getAmenities() != null && bookingRequest.getAmenities().size() > 0) {
@@ -239,23 +262,20 @@ public class AvailabilityService {
                     } else {
                         LOGGER.info("Removing property due to amenity mismatch : " + prop.getId());
                         iter.remove();
+                        AlternativeUnits alternativeUnits = new AlternativeUnits();
+                        alternativeUnits.setId(prop.getId());
+                        alternativeUnits.setAvailableStarting(bookingRequest.getDateModel()!=null?bookingRequest.getDateModel().getStart()!=null?bookingRequest.getDateModel().getStart():LocalDate.now().toString():LocalDate.now().toString());
+                        other.add(alternativeUnits);
                         continue;
                     }
                 }
-
-                // check for particular date
-
-                boolean flagReserved = propReservedOnSelectedDate(bookingRequest, prop.getId());
-                if (flagReserved) {
-                    LOGGER.info("Removing property due to reservation issue : " + prop.getId());
-                    iter.remove();
-                    continue;
-                }
-
             }catch(Exception e){
-                LOGGER.error("Some exception in property lets loop further : ",e);
+                iter.remove();
+                LOGGER.error("Some exception in property lets loop further and remove prop : ",e);
             }
+
         }
+        availabilityResponse.setOther(other);
         if(properties.size()>0){
             response.setData(properties);
             response.setMessage("success");
@@ -284,13 +304,19 @@ public class AvailabilityService {
         }
         return flagReserved;
     }
-    public AvailabilityResponse prepareActualResponse(List<PropertyEntity> propertyEntities) {
-        AvailabilityResponse availabilityResponse= new AvailabilityResponse();
-        List<Long> matchUnits = new ArrayList<>();
-        for(PropertyEntity prop:propertyEntities) {
-            matchUnits.add(prop.getId());
+    public AvailabilityResponse prepareActualResponse(Response response,AvailabilityResponse availabilityResponse) {
+        if(response.getMessage().equals("success")) {
+            List<Long> matchUnits = new ArrayList<>();
+            for (PropertyEntity prop : (List<PropertyEntity>)response.getData()) {
+                matchUnits.add(prop.getId());
+            }
+            availabilityResponse.setMatch(matchUnits);
+            if(matchUnits!=null && matchUnits.size()>0){
+                availabilityResponse.setOther(new ArrayList<>());
+            }
+        }else{
+            availabilityResponse.setMatch(new ArrayList<>());
         }
-        availabilityResponse.setMatch(matchUnits);
         return availabilityResponse;
     }
 
@@ -301,17 +327,29 @@ public class AvailabilityService {
 
             switch (FlexiType.valueOf(bookingRequest.getFlexibleModel().getType())){
                 case month:
-                    flagNotAvail = DateFormatUtil.monthOverlapAvail(availabilityEntities,monInt);
+                    flagNotAvail = DateFormatUtil.monthOverlapAvail(availabilityEntities,monInt,30);
                     break;
                 case week:
-                    //flagNotAvail = DateFormatUtil.weekOverlap();
+                    flagNotAvail = DateFormatUtil.monthOverlapAvail(availabilityEntities,monInt,7);
                     break;
                 case weekend:
-                    //flagNotAvail = DateFormatUtil.weekendOverlap();
+                    flagNotAvail = DateFormatUtil.weekendOverlapAvail(availabilityEntities,monInt,bookingRequest.getCity());
                     break;
             }
         } else {
-            flagNotAvail = false;
+            // only check if current month req else all good
+            switch (FlexiType.valueOf(bookingRequest.getFlexibleModel().getType())){
+                case month:
+                    flagNotAvail = DateFormatUtil.datePossibleThismonth(monInt,30);
+                    break;
+                case week:
+                    flagNotAvail = DateFormatUtil.datePossibleThismonth(monInt,7);
+                    break;
+                case weekend:
+                    flagNotAvail = DateFormatUtil.weekendPossibleThismonth(monInt,bookingRequest.getCity());
+                    break;
+            }
+
         }
         return flagNotAvail;
     }
@@ -319,22 +357,32 @@ public class AvailabilityService {
         boolean flagReserved = true;
         List<ReservationEntity> reservationEntities = buildingService.getReservations(propId,monInt);
         if(reservationEntities!=null && reservationEntities.size()>0){
-            for(ReservationEntity reserve : reservationEntities) {
-                switch (FlexiType.valueOf(bookingRequest.getFlexibleModel().getType())){
-                    case month:
-                        flagReserved = DateFormatUtil.monthOverlapReserve(reservationEntities,monInt);
-                        break;
-                    case week:
-                      //  flagReserved = DateFormatUtil.weekOverlap();
-                        break;
-                    case weekend:
-                      //  flagReserved = DateFormatUtil.weekendOverlap();
-                        break;
+            switch (FlexiType.valueOf(bookingRequest.getFlexibleModel().getType())){
+                case month:
+                    flagReserved = DateFormatUtil.monthOverlapReserve(reservationEntities,monInt,30);
+                    break;
+                case week:
+                    flagReserved = DateFormatUtil.monthOverlapReserve(reservationEntities,monInt,7);
+                    break;
+                case weekend:
+                    flagReserved = DateFormatUtil.weekendOverlapReserve(reservationEntities,monInt,bookingRequest.getCity());
+                    break;
 
-                }
             }
+
         }else {
-            flagReserved= false;
+            switch (FlexiType.valueOf(bookingRequest.getFlexibleModel().getType())){
+                case month:
+                    flagReserved = DateFormatUtil.datePossibleThismonth(monInt,30);
+                    break;
+                case week:
+                    flagReserved =DateFormatUtil.datePossibleThismonth(monInt,7);
+                    break;
+                case weekend:
+                    flagReserved = DateFormatUtil.weekendPossibleThismonth(monInt,bookingRequest.getCity());
+                    break;
+
+            }
         }
         return flagReserved;
     }
